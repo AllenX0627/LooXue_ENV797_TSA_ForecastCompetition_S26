@@ -22,5 +22,114 @@ library(outliers)
 library(tidyverse)
 library(smooth)
 library(kableExtra)
-
 ```
+
+# Loading Data
+```{r}
+load <- read_excel("tsa-spring-2026-load-forecasting-competition/load.xlsx")
+rh <- read_excel("tsa-spring-2026-load-forecasting-competition/relative_humidity.xlsx")
+temp <- read_excel("tsa-spring-2026-load-forecasting-competition/temperature.xlsx")
+
+colnames(load)
+colnames(temp)
+colnames(rh)
+```
+
+# Aggregate to Daily
+```{r}
+# turning into daily data
+library(dplyr)
+
+load_daily <- load %>%
+  mutate(date = as.Date(date)) %>%
+  rowwise() %>%
+  mutate(load = mean(c_across(h1:h24), na.rm = TRUE)) %>%
+  ungroup() %>%
+  select(date, load)
+
+temp_daily <- temp %>%
+  mutate(date = as.Date(date)) %>%
+  rowwise() %>%
+  mutate(temp_hourly = mean(c_across(starts_with("t_ws")), na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(date) %>%
+  summarise(temp = mean(temp_hourly, na.rm = TRUE))
+
+rh_daily <- rh %>%
+  mutate(date = as.Date(date)) %>%
+  rowwise() %>%
+  mutate(rh_hourly = mean(c_across(starts_with("rh_ws")), na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(date) %>%
+  summarise(rh = mean(rh_hourly, na.rm = TRUE))
+
+data_daily <- load_daily %>%
+  left_join(temp_daily, by = "date") %>%
+  left_join(rh_daily, by = "date")
+
+data_daily
+```
+
+# Initial Plots
+```{r}
+ggplot(data_daily, aes(x = date, y = load)) +
+  geom_line() +
+  labs(title = "Daily Electricity Load",
+       x = "Date",
+       y = "Daily Average Load") +
+  theme_minimal()
+```
+
+# Train and Validation split
+```{r}
+train <- data_daily %>%
+  filter(date >= as.Date("2005-01-01") & date <= as.Date("2010-06-30"))
+
+valid <- data_daily %>%
+  filter(date >= as.Date("2010-07-01") & date <= as.Date("2010-07-31"))
+
+nrow(train)
+nrow(valid)
+head(train)
+head(valid)
+
+ts_train <- msts(train$load, seasonal.periods = c(7, 365.25))
+ts_valid <- valid$load
+```
+
+# Forecasts
+
+## Mean forecast
+```{r}
+MEAN_fit <- meanf(ts_train, h = 31)
+MEAN_scores <- accuracy(MEAN_fit$mean, ts_valid)
+MEAN_scores
+plot(MEAN_fit)
+```
+
+## Seasonal forecast
+```{r}
+SNAIVE_fit <- snaive(ts_train, h = 31)
+SNAIVE_scores <- accuracy(SNAIVE_fit$mean, ts_valid)
+SNAIVE_scores
+plot(SNAIVE_fit)
+```
+
+## Autoarima
+
+## Arima
+
+## Sarima
+
+
+# Model Performance
+
+
+# Refit on Best Dataset 
+
+
+
+
+
+
+
