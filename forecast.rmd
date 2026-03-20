@@ -1,0 +1,26 @@
+---
+title: "M8: Forecast Accuracy & Model Performance"
+author: "Si Min Loo, Shaochong Xue"
+output: pdf_document
+always_allow_html: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,tidy.opts=list(width.cutoff=80), tidy=FALSE) 
+```
+
+```{r package, message=FALSE}
+library(readxl)
+library(lubridate)
+library(ggplot2)
+library(forecast)  
+library(Kendall)
+library(tseries)
+library(outliers)
+library(tidyverse)
+library(smooth)
+library(kableExtra)
+
+```
