@@ -70,6 +70,25 @@ data_daily <- load_daily %>%
 data_daily
 ```
 
+#transform into time series object
+```{r}
+ts_load_daily <- msts(
+  data_daily$load,
+  seasonal.periods = c(7, 365.25)
+)
+
+```
+
+# Decompose to see the STL 
+
+```{r}
+ts_load_daily %>%
+  mstl() %>%
+  autoplot() +
+  labs(title = "STL Decomposition of Daily Electricity Load")
+
+```
+
 # Initial Plots
 ```{r}
 ggplot(data_daily, aes(x = date, y = load)) +
@@ -95,39 +114,128 @@ head(valid)
 
 ts_train <- msts(train$load, seasonal.periods = c(7, 365.25))
 ts_valid <- valid$load
+h <- length(ts_valid)
 ```
 
 # Forecasts
 
 ## Mean forecast
 ```{r}
-MEAN_fit <- meanf(ts_train, h = 31)
-MEAN_scores <- accuracy(MEAN_fit$mean, ts_valid)
-MEAN_scores
-plot(MEAN_fit)
+mean_fit <- meanf(ts_train, h = h)
+mean_scores <- accuracy(mean_fit$mean, ts_valid)
+mean_scores
+
+autoplot(mean_fit) +
+  labs(title = "Mean Forecast", y = "Load")
 ```
 
 ## Seasonal forecast
 ```{r}
-SNAIVE_fit <- snaive(ts_train, h = 31)
-SNAIVE_scores <- accuracy(SNAIVE_fit$mean, ts_valid)
-SNAIVE_scores
-plot(SNAIVE_fit)
+snaive_fit <- snaive(ts_train, h = h)
+snaive_scores <- accuracy(snaive_fit$mean, ts_valid)
+snaive_scores
+
+autoplot(snaive_fit) +
+  labs(title = "Seasonal Naive Forecast", y = "Load")
 ```
 
-## Autoarima
+## STL + ETL
+```{r}
+ets_fit <- stlf(ts_train, h = h, method = "ets")
+ets_scores <- accuracy(ets_fit$mean, ts_valid)
+ets_scores
 
-## Arima
+autoplot(ets_fit) +
+  labs(title = "STL + ETS Forecast", y = "Load")
 
-## Sarima
+```
+
+## ARIMA + Fourier
+```{r}
+arima_fourier_fit <- auto.arima(
+  ts_train,
+  seasonal = FALSE,
+  lambda = 0,
+  xreg = fourier(ts_train, K = c(2, 12))
+)
+
+arima_fourier_for <- forecast(
+  arima_fourier_fit,
+  xreg = fourier(ts_train, K = c(2, 12), h = h),
+  h = h
+)
+
+arima_scores <- accuracy(arima_fourier_for$mean, ts_valid)
+arima_scores
+
+autoplot(arima_fourier_for) +
+  labs(title = "ARIMA + Fourier Forecast", y = "Load")
+
+```
 
 
-# Model Performance
+## TBATS
 
+```{r}
+tbats_fit <- tbats(ts_train)
+tbats_for <- forecast(tbats_fit, h = h)
+
+tbats_scores <- accuracy(tbats_for$mean, ts_valid)
+tbats_scores
+
+autoplot(tbats_for) +
+  labs(title = "TBATS Forecast", y = "Load")
+
+```
+
+## NN
+```{r}
+
+```
+
+# Model Performance, Checking Accuracy
+```{r}
+scores <- rbind(
+  Mean            = mean_scores,
+  Seasonal_Naive  = snaive_scores,
+  STL_ETS         = ets_scores,
+  ARIMA_Fourier   = arima_scores,
+  TBATS           = tbats_scores
+)
+
+scores_df <- as.data.frame(scores)
+scores_df %>%
+  kbl(caption = "Forecast Accuracy Comparison") %>%
+  kable_styling(full_width = FALSE)
+
+best_model_name <- rownames(scores_df)[which.min(scores_df$RMSE)]
+cat("The best model by RMSE is:", best_model_name)
+
+```
 
 # Refit on Best Dataset 
 
+```{r}
+ts_full <- msts(data_daily$load, seasonal.periods = c(7, 365.25))
+future_h <- 31
 
+best_fit <- auto.arima(
+  ts_full,
+  seasonal = FALSE,
+  lambda = 0,
+  xreg = fourier(ts_full, K = c(2, 12))
+)
+
+best_forecast <- forecast(
+  best_fit,
+  xreg = fourier(ts_full, K = c(2, 12), h = future_h),
+  h = future_h
+)
+
+autoplot(best_forecast) +
+  labs(title = "Final Forecast from Refit Best Model", y = "Load")
+
+```
 
 
 
