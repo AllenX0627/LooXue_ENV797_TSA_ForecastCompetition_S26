@@ -173,6 +173,25 @@ autoplot(arima_fourier_for) +
 
 ```
 
+## SARIMA
+```{r}
+ts_train_sarima <- ts(train$load, frequency = 7)
+
+sarima_fit <- auto.arima(
+  ts_train_sarima,
+  seasonal = TRUE,
+  lambda = 0
+)
+
+sarima_for <- forecast(sarima_fit, h = h)
+
+sarima_scores <- accuracy(sarima_for$mean, ts_valid)
+sarima_scores
+
+autoplot(sarima_for) +
+  labs(title = "SARIMA Forecast", y = "Load")
+```
+
 
 ## TBATS
 
@@ -200,6 +219,7 @@ scores <- rbind(
   Seasonal_Naive  = snaive_scores,
   STL_ETS         = ets_scores,
   ARIMA_Fourier   = arima_scores,
+  SARIMA          = sarima_scores,
   TBATS           = tbats_scores
 )
 
@@ -236,7 +256,34 @@ autoplot(best_forecast) +
   labs(title = "Final Forecast from Refit Best Model", y = "Load")
 
 ```
+# Forecast Results
 
+```{r}
+# load template
+template <- read.csv("./tsa-spring-2026-load-forecasting-competition/submission_template.csv")
+```
+
+## Mean
+```{r}
+mean_full <- meanf(ts_full, h = future_h)
+
+mean_for <- template
+mean_for$load <- as.numeric(mean_full$mean)
+
+mean_for
+```
+## SNAIVE
+```{r}
+snaive_full <- snaive(ts_full, h = future_h)
+
+snaive_for <- template
+snaive_for$load <- as.numeric(snaive_full$mean)
+
+snaive_for
+```
+```{r}
+write.csv(snaive_for, "initial_result.csv", row.names = FALSE)
+```
 
 
 
