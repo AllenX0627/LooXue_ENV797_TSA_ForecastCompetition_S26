@@ -212,25 +212,60 @@ autoplot(tbats_for) +
 
 ```
 
+## State Space ETS (SSES)
+```{r}
+sses_fit <- es(ts_train, model = "ZZZ", h = h, holdout = FALSE)
+sses_scores <- accuracy(sses_fit$forecast, ts_valid)
+sses_scores
+
+plot(sses_fit)
+checkresiduals(sses_fit)
+```
+
+## State Space BSM (StructTS)
+```{r}
+# StructTS needs a single-frequency ts object — use weekly (freq=7) like your SARIMA
+ts_train_bsm <- ts(train$load, frequency = 7)
+
+# First try letting it find variances freely
+ss_fit <- StructTS(ts_train_bsm, type = "BSM", fixed = c(NA, NA, NA, NA))
+checkresiduals(ss_fit)
+
+# If convergence issues, fix some variances (uncomment below):
+# ss_fit <- StructTS(ts_train_bsm, type = "BSM", fixed = c(0.1, 0.01, 0.3, NA))
+
+ss_for <- forecast(ss_fit, h = h)
+ss_scores <- accuracy(ss_for$mean, ts_valid)
+ss_scores
+
+autoplot(ss_for) +
+  labs(title = "BSM (StructTS) Forecast", y = "Load")
+```
+
+
 # Model Performance, Checking Accuracy
 ```{r}
+# Model Performance, Checking Accuracy
 scores <- rbind(
-  Mean            = mean_scores,
-  Seasonal_Naive  = snaive_scores,
-  STL_ETS         = ets_scores,
-  ARIMA_Fourier   = arima_scores,
-  SARIMA          = sarima_scores,
-  TBATS           = tbats_scores
+  Mean           = accuracy(mean_fit$mean,         ts_valid)[1,],
+  Seasonal_Naive = accuracy(snaive_fit$mean,        ts_valid)[1,],
+  STL_ETS        = accuracy(ets_fit$mean,           ts_valid)[1,],
+  ARIMA_Fourier  = accuracy(arima_fourier_for$mean, ts_valid)[1,],
+  SARIMA         = accuracy(sarima_for$mean,        ts_valid)[1,],
+  TBATS          = accuracy(tbats_for$mean,         ts_valid)[1,],
+  SSES           = accuracy(sses_fit$forecast,      ts_valid)[1,],
+  BSM            = accuracy(ss_for$mean,            ts_valid)[1,]
 )
 
 scores_df <- as.data.frame(scores)
 scores_df %>%
   kbl(caption = "Forecast Accuracy Comparison") %>%
-  kable_styling(full_width = FALSE)
+  kable_styling(full_width = FALSE) %>%
+  kable_styling(latex_options = "striped",
+                stripe_index = which.min(scores_df$RMSE))  # highlight best
 
 best_model_name <- rownames(scores_df)[which.min(scores_df$RMSE)]
 cat("The best model by RMSE is:", best_model_name)
-
 ```
 
 # Refit on Best Dataset 
@@ -281,6 +316,8 @@ snaive_for$load <- as.numeric(snaive_full$mean)
 
 snaive_for
 ```
+
+
 ```{r}
 write.csv(snaive_for, "initial_result.csv", row.names = FALSE)
 ```
