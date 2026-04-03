@@ -139,7 +139,7 @@ autoplot(snaive_fit) +
   labs(title = "Seasonal Naive Forecast", y = "Load")
 ```
 
-## STL + ETL
+## STL + ETS
 ```{r}
 ets_fit <- stlf(ts_train, h = h, method = "ets")
 ets_scores <- accuracy(ets_fit$mean, ts_valid)
@@ -151,17 +151,42 @@ autoplot(ets_fit) +
 ```
 
 ## ARIMA + Fourier
+
+```{r}
+# # Initial Grid Search for parameters
+# K_options <- list(
+#   c(1, 6),
+#   c(2, 6),
+#   c(3, 6),
+#   c(1, 12),
+#   c(2, 12),
+#   c(3, 12),   # max for weekly
+#   c(2, 24),
+#   c(3, 24)
+# )
+# 
+# results <- lapply(K_options, function(k) {
+#   fit <- auto.arima(ts_train, seasonal = FALSE, lambda = 0, #lambda = null
+#                     xreg = fourier(ts_train, K = k))
+#   fcast <- forecast(fit, xreg = fourier(ts_train, K = k, h = h), h = h)
+#   rmse  <- accuracy(fcast$mean, ts_valid)[, "RMSE"]
+#   list(K = k, RMSE = rmse, AICc = fit$aicc)
+# })
+```
+
+  c(2, 24),   # current best
+
 ```{r}
 arima_fourier_fit <- auto.arima(
   ts_train,
   seasonal = FALSE,
   lambda = 0,
-  xreg = fourier(ts_train, K = c(2, 12))
+  xreg = fourier(ts_train, K = c(2, 24))
 )
 
 arima_fourier_for <- forecast(
   arima_fourier_fit,
-  xreg = fourier(ts_train, K = c(2, 12), h = h),
+  xreg = fourier(ts_train, K = c(2, 24), h = h),
   h = h
 )
 
@@ -209,7 +234,13 @@ autoplot(tbats_for) +
 
 ## NN
 ```{r}
+# p = lagged inputs, P = seasonal lags, size = hidden nodes
+nn_fit <- nnetar(ts_train, p = 7, P = 1, size = 10, repeats = 20)
+nn_for  <- forecast(nn_fit, h = h)
+nn_scores <- accuracy(nn_for$mean, ts_valid)
 
+# Tune: try p=14, P=2 for more memory; increase size for more capacity
+nn_fit2 <- nnetar(ts_train, p = 14, P = 2, size = 15, repeats = 20, lambda = 0)
 ```
 
 ## State Space ETS (SSES)
@@ -271,26 +302,42 @@ cat("The best model by RMSE is:", best_model_name)
 # Refit on Best Dataset 
 
 ```{r}
+# Verify full dataset before refitting
+cat("Data range:", as.character(min(data_daily$date)), "to", as.character(max(data_daily$date)), "\n")
+cat("Rows:", nrow(data_daily), "\n")
+
+```
+
+```{r}
+# Verify full dataset before refitting
+cat("Data range:", as.character(min(data_daily$date)), "to", as.character(max(data_daily$date)), "\n")
+cat("Rows:", nrow(data_daily), "\n")
+
 ts_full <- msts(data_daily$load, seasonal.periods = c(7, 365.25))
 future_h <- 31
 
-best_fit <- auto.arima(
-  ts_full,
-  seasonal = FALSE,
-  lambda = 0,
-  xreg = fourier(ts_full, K = c(2, 12))
-)
+# This will take several minutes — normal for TBATS on ~2372 obs
+tbats_full_fit <- tbats(ts_full)
+tbats_final_forecast <- forecast(tbats_full_fit, h = future_h)
 
-best_forecast <- forecast(
-  best_fit,
-  xreg = fourier(ts_full, K = c(2, 12), h = future_h),
-  h = future_h
-)
+autoplot(tbats_final_forecast) +
+  labs(title = "TBATS Final Forecast - July 2011", y = "Daily Load")
 
-autoplot(best_forecast) +
-  labs(title = "Final Forecast from Refit Best Model", y = "Load")
+# Build submission
+template <- read.csv("tsa-spring-2026-load-forecasting-competition/submission_template.csv")
+tbats_submission <- template
+tbats_submission$load <- as.numeric(tbats_final_forecast$mean)
 
+# Sanity checks
+cat("Rows in submission:", nrow(tbats_submission), "\n")        # should be 31
+cat("Any NAs:", anyNA(tbats_submission$load), "\n")             # should be FALSE
+cat("Load range:", range(tbats_submission$load), "\n")          # should be plausible
+print(tbats_submission)
+
+write.csv(tbats_submission, "tbats_submission.csv", row.names = FALSE)
 ```
+
+
 # Forecast Results
 
 ```{r}
@@ -299,23 +346,23 @@ template <- read.csv("./tsa-spring-2026-load-forecasting-competition/submission_
 ```
 
 ## Mean
-```{r}
-mean_full <- meanf(ts_full, h = future_h)
-
-mean_for <- template
-mean_for$load <- as.numeric(mean_full$mean)
-
-mean_for
-```
-## SNAIVE
-```{r}
-snaive_full <- snaive(ts_full, h = future_h)
-
-snaive_for <- template
-snaive_for$load <- as.numeric(snaive_full$mean)
-
-snaive_for
-```
+# ```{r}
+# mean_full <- meanf(ts_full, h = future_h)
+# 
+# mean_for <- template
+# mean_for$load <- as.numeric(mean_full$mean)
+# 
+# mean_for
+# ```
+# ## SNAIVE
+# ```{r}
+# snaive_full <- snaive(ts_full, h = future_h)
+# 
+# snaive_for <- template
+# snaive_for$load <- as.numeric(snaive_full$mean)
+# 
+# snaive_for
+# ```
 
 
 ```{r}
