@@ -117,6 +117,20 @@ ts_valid <- valid$load
 h <- length(ts_valid)
 ```
 
+# Adding exogenous regressors
+```{r}
+# temp
+xreg_train_temp <- as.matrix(train$temp)
+xreg_valid_temp <- as.matrix(valid$temp)
+
+
+dim(xreg_train_temp)
+dim(xreg_valid_temp)
+head(xreg_train_temp)
+head(xreg_valid_temp)
+```
+
+
 # Forecasts
 
 ## Mean forecast
@@ -197,6 +211,41 @@ autoplot(arima_fourier_for) +
   labs(title = "ARIMA + Fourier Forecast", y = "Load")
 
 ```
+
+
+# ARIMA + Fourier + Temp
+```{r}
+# Combine Fourier terms with temperature as xreg
+xreg_train_arima_temp <- cbind(
+  fourier(ts_train, K = c(2, 24)),
+  temp = xreg_train_temp
+)
+
+xreg_valid_arima_temp <- cbind(
+  fourier(ts_train, K = c(2, 24), h = h),
+  temp = xreg_valid_temp
+)
+
+arima_temp_fit <- auto.arima(
+  ts_train,
+  seasonal = FALSE,
+  lambda = 0,
+  xreg = xreg_train_arima_temp
+)
+
+arima_temp_for <- forecast(
+  arima_temp_fit,
+  xreg = xreg_valid_arima_temp,
+  h = h
+)
+
+arima_temp_scores <- accuracy(arima_temp_for$mean, ts_valid)
+arima_temp_scores
+
+autoplot(arima_temp_for) +
+  labs(title = "ARIMA + Fourier + Temperature Forecast", y = "Load")
+```
+
 
 ## SARIMA
 ```{r}
@@ -282,6 +331,7 @@ scores <- rbind(
   Seasonal_Naive = accuracy(snaive_fit$mean,        ts_valid)[1,],
   STL_ETS        = accuracy(ets_fit$mean,           ts_valid)[1,],
   ARIMA_Fourier  = accuracy(arima_fourier_for$mean, ts_valid)[1,],
+  ARIMA_Fourier_Temp = accuracy(arima_temp_for$mean,ts_valid)[1,],
   SARIMA         = accuracy(sarima_for$mean,        ts_valid)[1,],
   TBATS          = accuracy(tbats_for$mean,         ts_valid)[1,],
   SSES           = accuracy(sses_fit$forecast,      ts_valid)[1,],
@@ -369,6 +419,39 @@ template <- read.csv("./tsa-spring-2026-load-forecasting-competition/submission_
 write.csv(snaive_for, "initial_result.csv", row.names = FALSE)
 ```
 
+# Combo (TBAT + ARIMA Fourier)
+```{r}
+#Refit arima
+arima_fourier_full_fit <- auto.arima(
+  ts_full,
+  seasonal = FALSE,
+  lambda = 0,
+  xreg = fourier(ts_full, K = c(2, 24))
+)
+
+arima_fourier_final_forecast <- forecast(
+  arima_fourier_full_fit,
+  xreg = fourier(ts_full, K = c(2, 24), h = future_h),
+  h = future_h
+)
+
+
+combo_for <- (tbats_final_forecast$mean + arima_fourier_final_forecast$mean) / 2
+```
+
+```{r}
+# Build submission
+combo_submission <- template
+combo_submission$load <- as.numeric(combo_for)
+
+# Sanity checks
+cat("Rows in submission:", nrow(combo_submission), "\n")
+cat("Any NAs:", anyNA(combo_submission$load), "\n")
+cat("Load range:", range(combo_submission$load), "\n")
+print(combo_submission)
+
+write.csv(combo_submission, "combo_submission.csv", row.names = FALSE)
+```
 
 
 
