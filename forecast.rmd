@@ -246,6 +246,37 @@ autoplot(arima_temp_for) +
   labs(title = "ARIMA + Fourier + Temperature Forecast", y = "Load")
 ```
 
+# ARIMA Fourier + Temp + RH
+```{r}
+xreg_train_arima_weather <- cbind(
+  fourier(ts_train, K = c(2, 24)),
+  temp = train$temp,
+  rh = train$rh
+)
+
+xreg_valid_arima_weather <- cbind(
+  fourier(ts_train, K = c(2, 24), h = h),
+  temp = valid$temp,
+  rh = valid$rh
+)
+
+arima_weather_fit <- auto.arima(
+  ts_train,
+  seasonal = FALSE,
+  lambda = 0,
+  xreg = xreg_train_arima_weather
+)
+
+arima_weather_for <- forecast(
+  arima_weather_fit,
+  xreg = xreg_valid_arima_weather,
+  h = h
+)
+
+arima_weather_scores <- accuracy(arima_weather_for$mean, ts_valid)
+arima_weather_scores
+```
+
 
 ## SARIMA
 ```{r}
@@ -280,6 +311,86 @@ autoplot(tbats_for) +
   labs(title = "TBATS Forecast", y = "Load")
 
 ```
+
+## TBATS Cleaned
+```{r}
+ts_train_clean <- tsclean(ts_train)
+
+tbats_clean_fit <- tbats(ts_train_clean)
+tbats_clean_for <- forecast(tbats_clean_fit, h = h)
+
+tbats_clean_scores <- accuracy(tbats_clean_for$mean, ts_valid)
+tbats_clean_scores
+```
+## Recent Window TBATS
+```{r}
+# Recent-window TBATS experiment
+window_results <- data.frame()
+
+start_dates <- as.Date(c(
+  "2005-01-01",
+  "2006-01-01",
+  "2007-01-01",
+  "2008-01-01"
+))
+
+
+for (s in start_dates) {
+  
+  train_window <- train %>%
+    filter(date >= s)
+  
+  ts_train_window <- msts(
+    train_window$load,
+    seasonal.periods = c(7, 365.25)
+  )
+  
+  fit_window <- tbats(ts_train_window)
+  for_window <- forecast(fit_window, h = h)
+  
+  rmse_window <- accuracy(for_window$mean, ts_valid)[1, "RMSE"]
+  
+  window_results <- rbind(
+    window_results,
+    data.frame(
+      start_date = as.Date(s), 
+      n = nrow(train_window),
+      RMSE = rmse_window
+    )
+  )
+}
+
+window_results
+```
+```{r}
+# TBATS using 2007
+
+train_2007 <- train %>%
+  filter(date >= as.Date("2007-01-01"))
+
+ts_train_2007 <- msts(
+  train_2007$load,
+  seasonal.periods = c(7, 365.25)
+)
+
+# Fit TBATS
+tbats_2007_fit <- tbats(ts_train_2007)
+
+# Forecast validation period
+tbats_2007_for <- forecast(
+  tbats_2007_fit,
+  h = h
+)
+
+tbats_2007_scores <- accuracy(
+  tbats_2007_for$mean,
+  ts_valid
+)
+
+tbats_2007_scores
+
+```
+
 
 ## NN
 ```{r}
@@ -322,6 +433,30 @@ autoplot(ss_for) +
   labs(title = "BSM (StructTS) Forecast", y = "Load")
 ```
 
+# Combo (TBAT + ARIMA Fourier)
+```{r}
+#Refit arima
+arima_fourier_full_fit <- auto.arima(
+  ts_full,
+  seasonal = FALSE,
+  lambda = 0,
+  xreg = fourier(ts_full, K = c(2, 24))
+)
+
+arima_fourier_final_forecast <- forecast(
+  arima_fourier_full_fit,
+  xreg = fourier(ts_full, K = c(2, 24), h = future_h),
+  h = future_h
+)
+
+
+combo_for <- (tbats_for$mean + arima_fourier_for$mean) / 2
+
+combo_scores <- accuracy(combo_for, ts_valid)
+combo_scores
+```
+
+
 
 # Model Performance, Checking Accuracy
 ```{r}
@@ -332,10 +467,14 @@ scores <- rbind(
   STL_ETS        = accuracy(ets_fit$mean,           ts_valid)[1,],
   ARIMA_Fourier  = accuracy(arima_fourier_for$mean, ts_valid)[1,],
   ARIMA_Fourier_Temp = accuracy(arima_temp_for$mean,ts_valid)[1,],
+  ARIMA_Fourier_Weather = accuracy(arima_weather_for$mean, ts_valid)[1,],
   SARIMA         = accuracy(sarima_for$mean,        ts_valid)[1,],
   TBATS          = accuracy(tbats_for$mean,         ts_valid)[1,],
+  TBATS_Clean    = accuracy(tbats_clean_for$mean,   ts_valid)[1,],
+  TBATS_2007     = accuracy(tbats_2007_for$mean,    ts_valid)[1,],
   SSES           = accuracy(sses_fit$forecast,      ts_valid)[1,],
-  BSM            = accuracy(ss_for$mean,            ts_valid)[1,]
+  BSM            = accuracy(ss_for$mean,            ts_valid)[1,],
+  Combo          = accuracy(combo_for,              ts_valid)[1,]
 )
 
 scores_df <- as.data.frame(scores)
@@ -345,8 +484,14 @@ scores_df %>%
   kable_styling(latex_options = "striped",
                 stripe_index = which.min(scores_df$RMSE))  # highlight best
 
-best_model_name <- rownames(scores_df)[which.min(scores_df$RMSE)]
-cat("The best model by RMSE is:", best_model_name)
+# top 5 models
+scores_ranked <- scores_df[order(scores_df$RMSE), ]
+top5 <- head(scores_ranked, 5)
+
+cat("Top 5 models by RMSE:\n")
+for (i in 1:5) {
+  cat(sprintf("  #%d: %-25s RMSE = %.4f\n", i, rownames(top5)[i], top5$RMSE[i]))
+}
 ```
 
 # Refit on Best Dataset 
@@ -419,27 +564,10 @@ template <- read.csv("./tsa-spring-2026-load-forecasting-competition/submission_
 write.csv(snaive_for, "initial_result.csv", row.names = FALSE)
 ```
 
-# Combo (TBAT + ARIMA Fourier)
-```{r}
-#Refit arima
-arima_fourier_full_fit <- auto.arima(
-  ts_full,
-  seasonal = FALSE,
-  lambda = 0,
-  xreg = fourier(ts_full, K = c(2, 24))
-)
 
-arima_fourier_final_forecast <- forecast(
-  arima_fourier_full_fit,
-  xreg = fourier(ts_full, K = c(2, 24), h = future_h),
-  h = future_h
-)
-
-
-combo_for <- (tbats_final_forecast$mean + arima_fourier_final_forecast$mean) / 2
-```
 
 ```{r}
+# output combine result
 # Build submission
 combo_submission <- template
 combo_submission$load <- as.numeric(combo_for)
@@ -453,5 +581,65 @@ print(combo_submission)
 write.csv(combo_submission, "combo_submission.csv", row.names = FALSE)
 ```
 
+## Output cleaned tbats
+```{r}
+# Clean full data
+ts_full_clean <- tsclean(ts_full)
+
+# Fit TBATS on cleaned full data
+tbats_clean_full_fit <- tbats(ts_full_clean)
+
+# Forecast
+tbats_clean_final_forecast <- forecast(tbats_clean_full_fit, h = 31)
+```
+
+```{r}
+# output TBATS + tsclean result
+
+# Build submission
+tbats_clean_submission <- template
+tbats_clean_submission$load <- as.numeric(tbats_clean_final_forecast$mean)
+
+# Sanity checks
+cat("Rows in submission:", nrow(tbats_clean_submission), "\n")
+cat("Any NAs:", anyNA(tbats_clean_submission$load), "\n")
+cat("Load range:", range(tbats_clean_submission$load), "\n")
+print(tbats_clean_submission)
+
+write.csv(tbats_clean_submission, "tbats_clean_submission.csv", row.names = FALSE)
+```
+
+## Output 2007+ TBATS
+```{r}
+data_2007 <- data_daily %>%
+  filter(date >= as.Date("2007-01-01"))
+
+ts_2007 <- msts(
+  data_2007$load,
+  seasonal.periods = c(7, 365.25)
+)
+
+tbats_2007_final_fit <- tbats(ts_2007)
+
+tbats_2007_forecast <- forecast(
+  tbats_2007_final_fit,
+  h = 31
+)
+```
+
+```{r}
+
+# Build submission
+tbats_2007_submission <- template
+tbats_2007_submission$load <- as.numeric(tbats_2007_forecast$mean)
+
+# Sanity checks
+cat("Rows in submission:", nrow(tbats_2007_submission), "\n")
+cat("Any NAs:", anyNA(tbats_2007_submission$load), "\n")
+cat("Load range:", range(tbats_2007_submission$load), "\n")
+print(tbats_2007_submission)
+
+write.csv(tbats_2007_submission, "tbats_2007_submission.csv", row.names = FALSE)
+```
 
 

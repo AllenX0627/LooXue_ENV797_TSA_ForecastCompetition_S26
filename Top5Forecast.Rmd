@@ -1,0 +1,235 @@
+---
+title: "M8: Forecast Accuracy & Model Performance"
+author: "Si Min Loo, Shaochong Xue"
+output: pdf_document
+always_allow_html: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, tidy.opts = list(width.cutoff = 80), tidy = FALSE)
+```
+
+GitHub Repository: https://github.com/AllenX0627/LooXue_ENV797_TSA_ForecastCompetition_S26.git
+
+AI clarification: In this project, AI tools were used to assist with debugging and document formatting.
+
+```{r packages, message=FALSE, warning=FALSE}
+library(readxl)
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(forecast)
+library(tseries)
+library(tidyverse)
+library(kableExtra)
+```
+
+# Loading Data
+
+```{r load-data}
+load <- read_excel("tsa-spring-2026-load-forecasting-competition/load.xlsx")
+rh   <- read_excel("tsa-spring-2026-load-forecasting-competition/relative_humidity.xlsx")
+temp <- read_excel("tsa-spring-2026-load-forecasting-competition/temperature.xlsx")
+```
+
+# Data Wrangling: Aggregate to Daily
+
+```{r wrangle}
+load_daily <- load %>%
+  mutate(date = as.Date(date)) %>%
+  rowwise() %>%
+  mutate(load = mean(c_across(h1:h24), na.rm = TRUE)) %>%
+  ungroup() %>%
+  select(date, load)
+
+temp_daily <- temp %>%
+  mutate(date = as.Date(date)) %>%
+  rowwise() %>%
+  mutate(temp_hourly = mean(c_across(starts_with("t_ws")), na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(date) %>%
+  summarise(temp = mean(temp_hourly, na.rm = TRUE))
+
+rh_daily <- rh %>%
+  mutate(date = as.Date(date)) %>%
+  rowwise() %>%
+  mutate(rh_hourly = mean(c_across(starts_with("rh_ws")), na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(date) %>%
+  summarise(rh = mean(rh_hourly, na.rm = TRUE))
+
+data_daily <- load_daily %>%
+  left_join(temp_daily, by = "date") %>%
+  left_join(rh_daily,  by = "date")
+
+head(data_daily)
+```
+
+# Exploratory Analysis
+
+```{r eda-plot}
+ggplot(data_daily, aes(x = date, y = load)) +
+  geom_line() +
+  labs(title = "Daily Electricity Load",
+       x = "Date", y = "Daily Average Load") +
+  theme_minimal()
+```
+
+```{r stl-decomp}
+ts_load_daily <- msts(data_daily$load, seasonal.periods = c(7, 365.25))
+
+ts_load_daily %>%
+  mstl() %>%
+  autoplot() +
+  labs(title = "STL Decomposition of Daily Electricity Load")
+```
+
+# Train / Validation Split
+
+```{r train-valid-split}
+train <- data_daily %>%
+  filter(date >= as.Date("2005-01-01") & date <= as.Date("2010-06-30"))
+
+valid <- data_daily %>%
+  filter(date >= as.Date("2010-07-01") & date <= as.Date("2010-07-31"))
+
+cat("Training rows:", nrow(train), "\n")
+cat("Validation rows:", nrow(valid), "\n")
+
+ts_train <- msts(train$load, seasonal.periods = c(7, 365.25))
+ts_valid <- valid$load
+h        <- length(ts_valid)
+```
+
+---
+
+# Top 5 Models
+
+## Model 1: TBATS_2007
+
+TBATS fitted on data from 2007 onward achieved the best validation RMSE.
+
+```{r tbats-2007}
+train_2007 <- train %>%
+  filter(date >= as.Date("2007-01-01"))
+
+ts_train_2007 <- msts(train_2007$load, seasonal.periods = c(7, 365.25))
+
+tbats_2007_fit <- tbats(ts_train_2007)
+tbats_2007_for <- forecast(tbats_2007_fit, h = h)
+
+tbats_2007_scores <- accuracy(tbats_2007_for$mean, ts_valid)
+tbats_2007_scores
+
+autoplot(tbats_2007_for) +
+  labs(title = "TBATS_2007 Forecast (training from 2007)", y = "Load")
+```
+
+## Model 2: TBATS
+
+TBATS fitted on the full training window (2005–2010).
+
+```{r tbats}
+tbats_fit <- tbats(ts_train)
+tbats_for <- forecast(tbats_fit, h = h)
+
+tbats_scores <- accuracy(tbats_for$mean, ts_valid)
+tbats_scores
+
+autoplot(tbats_for) +
+  labs(title = "TBATS Forecast", y = "Load")
+```
+
+## Model 3: TBATS_Clean
+
+TBATS fitted after removing outliers with `tsclean()`.
+
+```{r tbats-clean}
+ts_train_clean  <- tsclean(ts_train)
+
+tbats_clean_fit <- tbats(ts_train_clean)
+tbats_clean_for <- forecast(tbats_clean_fit, h = h)
+
+tbats_clean_scores <- accuracy(tbats_clean_for$mean, ts_valid)
+tbats_clean_scores
+
+autoplot(tbats_clean_for) +
+  labs(title = "TBATS Clean Forecast", y = "Load")
+```
+
+## Model 4: Combo (TBATS + ARIMA Fourier)
+
+Simple average ensemble of TBATS and ARIMA+Fourier forecasts.
+
+```{r arima-fourier-for-combo}
+arima_fourier_fit <- auto.arima(
+  ts_train,
+  seasonal = FALSE,
+  lambda   = 0,
+  xreg     = fourier(ts_train, K = c(2, 24))
+)
+
+arima_fourier_for <- forecast(
+  arima_fourier_fit,
+  xreg = fourier(ts_train, K = c(2, 24), h = h),
+  h    = h
+)
+```
+
+```{r combo}
+combo_for    <- (tbats_for$mean + arima_fourier_for$mean) / 2
+combo_scores <- accuracy(combo_for, ts_valid)
+combo_scores
+
+# Plot combo forecast vs actual
+valid_dates <- valid$date
+plot(valid_dates, ts_valid, type = "l", col = "black",
+     main = "Combo Forecast vs Actual", ylab = "Load", xlab = "Date")
+lines(valid_dates, combo_for, col = "steelblue", lty = 2)
+legend("topright", legend = c("Actual", "Combo"), col = c("black", "steelblue"),
+       lty = c(1, 2))
+```
+
+## Model 5: ARIMA + Fourier
+
+ARIMA with Fourier terms (K = c(2, 24)) for dual seasonality.
+
+```{r arima-fourier}
+arima_scores <- accuracy(arima_fourier_for$mean, ts_valid)
+arima_scores
+
+autoplot(arima_fourier_for) +
+  labs(title = "ARIMA + Fourier Forecast (K = c(2,24))", y = "Load")
+```
+
+---
+
+# Model Performance Summary
+
+```{r accuracy-summary}
+scores <- rbind(
+  TBATS_2007    = tbats_2007_scores[1, ],
+  TBATS         = tbats_scores[1, ],
+  TBATS_Clean   = tbats_clean_scores[1, ],
+  Combo         = combo_scores[1, ],
+  ARIMA_Fourier = arima_scores[1, ]
+)
+
+scores_df      <- as.data.frame(scores)
+scores_ranked  <- scores_df[order(scores_df$RMSE), ]
+
+scores_ranked %>%
+  kbl(caption = "Top 5 Model Accuracy (Validation: July 2010)",
+      digits = 4) %>%
+  kable_styling(full_width = FALSE,
+                latex_options = c("striped", "hold_position"),
+                stripe_index  = 1)
+
+cat("\nTop 5 models by RMSE:\n")
+for (i in seq_len(nrow(scores_ranked))) {
+  cat(sprintf("  #%d: %-25s RMSE = %.4f\n",
+              i, rownames(scores_ranked)[i], scores_ranked$RMSE[i]))
+}
+```
