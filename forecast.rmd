@@ -391,6 +391,77 @@ tbats_2007_scores
 
 ```
 
+# TBATS bias correction
+```{r}
+tbats_2007_bias_for <- tbats_2007_for$mean + (-35.16369)
+
+accuracy(tbats_2007_bias_for, ts_valid)
+
+
+```
+
+## TBATS parameter tuning
+```{r}
+# TBATS detrend
+tbats_detrend_fit <- tbats(
+  ts_train,
+  use.trend = FALSE
+)
+
+tbats_detrend_for <- forecast(
+  tbats_detrend_fit,
+  h = h
+)
+
+accuracy(tbats_detrend_for$mean, ts_valid)
+```
+
+```{r}
+# TBATS with Box-Cox transformation
+tbats_boxcox_fit <- tbats(
+  ts_train,
+  use.box.cox = TRUE
+)
+
+tbats_boxcox_for <- forecast(
+  tbats_boxcox_fit,
+  h = h
+)
+
+accuracy(tbats_boxcox_for$mean, ts_valid)
+```
+
+```{r}
+# TBATS without Box-Cox
+tbats_no_boxcox_fit <- tbats(
+  ts_train,
+  use.box.cox = FALSE
+)
+
+tbats_no_boxcox_for <- forecast(
+  tbats_no_boxcox_fit,
+  h = h
+)
+
+accuracy(tbats_no_boxcox_for$mean, ts_valid)
+```
+```{r}
+# TBATS with damped trend
+tbats_damped_fit <- tbats(
+  ts_train,
+  use.trend = TRUE,
+  use.damped.trend = TRUE
+)
+
+tbats_damped_for <- forecast(
+  tbats_damped_fit,
+  h = h
+)
+
+accuracy(tbats_damped_for$mean, ts_valid)
+```
+
+
 
 ## NN
 ```{r}
@@ -456,6 +527,21 @@ combo_scores <- accuracy(combo_for, ts_valid)
 combo_scores
 ```
 
+## Weighted Combo
+```{r}
+combo_90_10 <- 0.9 * as.numeric(tbats_2007_for$mean) +
+               0.1 * as.numeric(tbats_for$mean)
+
+combo_80_20 <- 0.8 * as.numeric(tbats_2007_for$mean) +
+               0.2 * as.numeric(tbats_for$mean)
+
+combo_70_30 <- 0.7 * as.numeric(tbats_2007_for$mean) +
+               0.3 * as.numeric(tbats_for$mean)
+
+accuracy(combo_90_10, ts_valid)
+accuracy(combo_80_20, ts_valid)
+accuracy(combo_70_30, ts_valid)
+```
 
 
 # Model Performance, Checking Accuracy
@@ -472,6 +558,10 @@ scores <- rbind(
   TBATS          = accuracy(tbats_for$mean,         ts_valid)[1,],
   TBATS_Clean    = accuracy(tbats_clean_for$mean,   ts_valid)[1,],
   TBATS_2007     = accuracy(tbats_2007_for$mean,    ts_valid)[1,],
+  TBATS_Detrend       = accuracy(tbats_detrend_for$mean, ts_valid)[1,],
+  TBATS_BoxCox         = accuracy(tbats_boxcox_for$mean, ts_valid)[1,],
+  TBATS_No_BoxCox      = accuracy(tbats_no_boxcox_for$mean, ts_valid)[1,],
+  TBATS_Damped         = accuracy(tbats_damped_for$mean, ts_valid)[1,],
   SSES           = accuracy(sses_fit$forecast,      ts_valid)[1,],
   BSM            = accuracy(ss_for$mean,            ts_valid)[1,],
   Combo          = accuracy(combo_for,              ts_valid)[1,]
@@ -641,5 +731,62 @@ print(tbats_2007_submission)
 
 write.csv(tbats_2007_submission, "tbats_2007_submission.csv", row.names = FALSE)
 ```
+
+# Output TBATS bias correction
+```{r}
+tbats_2007_bias_forecast <- tbats_2007_forecast$mean + (-35.16369)
+```
+
+```{r}
+# output TBATS recent 2007 with bias correction result
+
+# Build submission
+tbats_2007_bias_submission <- template
+tbats_2007_bias_submission$load <- as.numeric(tbats_2007_bias_forecast)
+
+# Sanity checks
+cat("Rows in submission:", nrow(tbats_2007_bias_submission), "\n")
+cat("Any NAs:", anyNA(tbats_2007_bias_submission$load), "\n")
+cat("Load range:", range(tbats_2007_bias_submission$load), "\n")
+print(tbats_2007_bias_submission)
+
+write.csv(tbats_2007_bias_submission, 
+          "tbats_2007_bias_submission.csv", 
+          row.names = FALSE)
+```
+
+# Output TBATS NO BOXCOX
+```{r}
+# Final TBATS without Box-Cox on full data
+
+tbats_no_boxcox_final_fit <- tbats(
+  ts_full,
+  use.box.cox = FALSE
+)
+
+tbats_no_boxcox_final_forecast <- forecast(
+  tbats_no_boxcox_final_fit,
+  h = 31
+)
+```
+
+```{r}
+# output TBATS_No_BoxCox result
+
+# Build submission
+tbats_no_boxcox_submission <- template
+tbats_no_boxcox_submission$load <- as.numeric(tbats_no_boxcox_final_forecast$mean)
+
+# Sanity checks
+cat("Rows in submission:", nrow(tbats_no_boxcox_submission), "\n")
+cat("Any NAs:", anyNA(tbats_no_boxcox_submission$load), "\n")
+cat("Load range:", range(tbats_no_boxcox_submission$load), "\n")
+print(tbats_no_boxcox_submission)
+
+write.csv(tbats_no_boxcox_submission, 
+          "tbats_no_boxcox_submission.csv", 
+          row.names = FALSE)
+```
+
 
 

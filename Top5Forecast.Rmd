@@ -107,27 +107,7 @@ h        <- length(ts_valid)
 
 # Top 5 Models
 
-## Model 1: TBATS_2007
-
-TBATS fitted on data from 2007 onward achieved the best validation RMSE.
-
-```{r tbats-2007}
-train_2007 <- train %>%
-  filter(date >= as.Date("2007-01-01"))
-
-ts_train_2007 <- msts(train_2007$load, seasonal.periods = c(7, 365.25))
-
-tbats_2007_fit <- tbats(ts_train_2007)
-tbats_2007_for <- forecast(tbats_2007_fit, h = h)
-
-tbats_2007_scores <- accuracy(tbats_2007_for$mean, ts_valid)
-tbats_2007_scores
-
-autoplot(tbats_2007_for) +
-  labs(title = "TBATS_2007 Forecast (training from 2007)", y = "Load")
-```
-
-## Model 2: TBATS
+## Model 1: TBATS
 
 TBATS fitted on the full training window (2005–2010).
 
@@ -142,7 +122,7 @@ autoplot(tbats_for) +
   labs(title = "TBATS Forecast", y = "Load")
 ```
 
-## Model 3: TBATS_Clean
+## Model 2: TBATS_Clean
 
 TBATS fitted after removing outliers with `tsclean()`.
 
@@ -157,6 +137,21 @@ tbats_clean_scores
 
 autoplot(tbats_clean_for) +
   labs(title = "TBATS Clean Forecast", y = "Load")
+```
+
+## Model 1: TBATS (No Box-Cox)
+
+TBATS fitted on the full training window with Box-Cox transformation disabled.
+
+```{r tbats-no-boxcox}
+tbats_no_boxcox_fit <- tbats(ts_train, use.box.cox = FALSE)
+tbats_no_boxcox_for <- forecast(tbats_no_boxcox_fit, h = h)
+
+tbats_no_boxcox_scores <- accuracy(tbats_no_boxcox_for$mean, ts_valid)
+tbats_no_boxcox_scores
+
+autoplot(tbats_no_boxcox_for) +
+  labs(title = "TBATS (No Box-Cox) Forecast", y = "Load")
 ```
 
 ## Model 4: Combo (TBATS + ARIMA Fourier)
@@ -182,14 +177,6 @@ arima_fourier_for <- forecast(
 combo_for    <- (tbats_for$mean + arima_fourier_for$mean) / 2
 combo_scores <- accuracy(combo_for, ts_valid)
 combo_scores
-
-# Plot combo forecast vs actual
-valid_dates <- valid$date
-plot(valid_dates, ts_valid, type = "l", col = "black",
-     main = "Combo Forecast vs Actual", ylab = "Load", xlab = "Date")
-lines(valid_dates, combo_for, col = "steelblue", lty = 2)
-legend("topright", legend = c("Actual", "Combo"), col = c("black", "steelblue"),
-       lty = c(1, 2))
 ```
 
 ## Model 5: ARIMA + Fourier
@@ -210,9 +197,9 @@ autoplot(arima_fourier_for) +
 
 ```{r accuracy-summary}
 scores <- rbind(
-  TBATS_2007    = tbats_2007_scores[1, ],
   TBATS         = tbats_scores[1, ],
   TBATS_Clean   = tbats_clean_scores[1, ],
+  TBATS_No_BoxCox = tbats_no_boxcox_scores[1, ],
   Combo         = combo_scores[1, ],
   ARIMA_Fourier = arima_scores[1, ]
 )
